@@ -1,1 +1,0 @@
-# eventbridge-fw-integration
