@@ -1,0 +1,163 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Sample application to demonstrate the integration between AWS EventBridge and SaaS partner events (Freshworks)
+
+Parameters:
+  FreshdeskURL:
+    Type: String
+    Default: https://<<EnterWorkspaceHere>>.freshdesk.com/api/v2/tickets
+  APIKeyValue:
+    NoEcho: true
+    Type: String
+    Default: '<<Enter your APIKeyValue>>'
+  Password:
+    NoEcho: true
+    Type: String
+    Default: '<<Enter your Password>>'
+  FreshdeskSaaSEventBus:
+    Type: String
+    Default: aws.partner/freshworks.com/<<SaaSEventBus>>
+  FWCustomEventBus:
+    Type: String
+    Default: <<CustomBusName>>
+
+Resources:
+  ########################   Custom managed policy for state machine   ############################
+  CustomerManagedPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - Effect: Allow
+            Action: "comprehend:DetectSentiment"
+            Resource: "*"
+          - Effect: Allow
+            Action: "events:PutEvents"
+            Resource: "*"
+  ########################   State Machine for Sentiment Analysis   ############################
+  SentimentalAnalysisStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: state-machine/sentiment-analysis.asl.json
+      DefinitionSubstitutions:
+        EBBus: !Ref MyEventBus
+      Policies:
+        - !Ref CustomerManagedPolicy 
+      # The Step Functions workflow is triggered each time an object is created in our S3 bucket.
+      Events:
+        StateChange:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: !Ref FreshdeskSaaSEventBus
+            Pattern:
+              source:
+                - "prefix": "aws.partner/freshworks.com"
+
+  ########################   Custom Event Bus   ############################
+  MyEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Ref FWCustomEventBus
+
+ ########################   API Connection   ############################
+  MyConnection:
+    Type: AWS::Events::Connection
+    Properties:
+      AuthorizationType: BASIC
+      Description: 'My connection with username/password'
+      AuthParameters:
+        BasicAuthParameters :
+          Username : !Ref APIKeyValue
+          Password : !Ref Password
+
+  ########################   API Destination   ############################
+  MyApiDestination:
+    Type: AWS::Events::ApiDestination
+    Properties:
+      Name: 'FreshdeskAPI'
+      ConnectionArn: !GetAtt MyConnection.Arn
+      InvocationEndpoint: !Ref FreshdeskURL
+      HttpMethod: PUT
+      InvocationRateLimitPerSecond: 10
+  
+  ########################   IAM Role to authorize API Destination invocations   ############################
+  EventBridgeTargetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action:
+              - sts:AssumeRole      
+      Policies:
+        - PolicyName: AllowAPIdestinationAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'events:InvokeApiDestination'
+                Resource: !GetAtt MyApiDestination.Arn
+
+  ########################   Dead letter queue   ############################
+  MyDLQueue: 
+    Type: AWS::SQS::Queue
+
+  ########################   Event rule with API destination   ############################
+  EventRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: "EventRule"
+      State: "ENABLED"
+      EventBusName: !Ref MyEventBus
+      EventPattern: 
+        source:
+          - "fw-sentiment"       
+      Targets: 
+        - Arn: !GetAtt MyApiDestination.Arn
+          RoleArn: !GetAtt EventBridgeTargetRole.Arn
+          Id: "MyAPIdestination"
+          InputTransformer:
+            InputPathsMap:
+              id: $.detail.id
+              priority: $.detail.priority
+            InputTemplate: >
+                {
+                  "priority": <priority>
+                }
+          HttpParameters:
+            PathParameterValues:
+              - $.detail.id
+          DeadLetterConfig:
+            Arn: !GetAtt MyDLQueue.Arn
+        
+
+Outputs:
+  MyEventBusName:
+    Description: Application EventBus Name
+    Value: !Ref MyEventBus
+
+  MyEventBusArn:
+    Description: Application EventBus ARN
+    Value: !GetAtt MyEventBus.Arn
+
+  MyConnectionName:
+    Value: !Ref MyConnection
+  MyConnectionArn:
+    Value: !GetAtt MyConnection.Arn        
+
+  MyApiDestinationName:
+    Value: !Ref MyApiDestination
+  MyApiDestinationArn:
+    Value: !GetAtt MyApiDestination.Arn
+
+  EventBridgeTargetRoleArn:
+    Value: !GetAtt EventBridgeTargetRole.Arn
+
+  MyDLQueue:
+    Value: !GetAtt MyDLQueue.Arn

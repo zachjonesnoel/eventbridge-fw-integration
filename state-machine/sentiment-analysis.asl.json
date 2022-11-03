@@ -1,0 +1,90 @@
+{
+    "Comment": "A state machine to determine the sentiment of the ticket from Freshdesk and update the priority with EventBridge API destinations",
+    "StartAt": "DetectSentiment",
+    "States": {
+        "DetectSentiment": {
+            "Type": "Task",
+            "Parameters": {
+                "LanguageCode": "en",
+                "Text": "<div style='font-family:-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif; font-size:14px'><div dir='ltr'>Horrible it’s literally 3 cashier 2 customer and i been waiting for 15 mins one cashier told me hold she counting down her entire draw and the manager is sitting right next her and the other cashier just waking back and forth</div></div>"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:comprehend:detectSentiment",
+            "ResultPath": "$.DetectSentiment",
+            "Next": "Choice"
+        },
+        "Choice": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.DetectSentiment.Sentiment",
+                    "StringEquals": "NEGATIVE",
+                    "Next": "HighPriority"
+                },
+                {
+                    "Variable": "$.DetectSentiment.Sentiment",
+                    "StringEquals": "POSITIVE",
+                    "Next": "LowPriority"
+                },
+                {
+                    "Variable": "$.DetectSentiment.Sentiment",
+                    "StringEquals": "NEUTRAL",
+                    "Next": "MediumPriority"
+                }
+            ]
+        },
+        "HighPriority": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:eventbridge:putEvents",
+            "Parameters": {
+                "Entries": [
+                    {
+                        "Detail": {
+                            "id.$": "$.detail.ticket.id",
+                            "priority": 4
+                        },
+                        "DetailType": "fw-demo",
+                        "EventBusName": "${EBBus}",
+                        "Source": "fw-sentiment"
+                    }
+                ]
+            },
+            "End": true
+        },
+        "LowPriority": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::events:putEvents",
+            "Parameters": {
+                "Entries": [
+                    {
+                        "Detail": {
+                            "id.$": "$.detail.ticket.id",
+                            "priority": 1
+                        },
+                        "DetailType": "fw-demo",
+                        "EventBusName": "${EBBus}",
+                        "Source": "fw-sentiment"
+                    }
+                ]
+            },
+            "End": true
+        },
+        "MediumPriority": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::events:putEvents",
+            "Parameters": {
+                "Entries": [
+                    {
+                        "Detail": {
+                            "id.$": "$.detail.ticket.id",
+                            "priority": 2
+                        },
+                        "DetailType": "fw-demo",
+                        "EventBusName": "${EBBus}",
+                        "Source": "fw-sentiment"
+                    }
+                ]
+            },
+            "End": true
+        }
+    }
+}
