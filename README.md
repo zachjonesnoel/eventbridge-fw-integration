@@ -1,7 +1,7 @@
 # AWS EventBridge with SaaS integrations
 This is a sample repository for demonstrating how AWS EventBridge can integrate with SaaS products, here we are using [Freshworks](https://freshworks.com). 
 
-This demo was presented at [AWS Dev Day Bengaluru 2022](https://pages.awscloud.com/aws-devday-bengaluru-reg.html)
+This demo was presented at [AWS Dev Day Bengaluru 2022](https://pages.awscloud.com/aws-devday-bengaluru-reg.html).
 
 ### How to get started
 
